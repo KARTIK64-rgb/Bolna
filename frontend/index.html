@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MedCall AI — AI-Powered Patient Appointment & Follow-Up System for Clinics">
+    <title>MedCall AI — Smart Clinic Dashboard</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/styles.css">
+
+    <!-- Backend URL Config — EDIT THIS when deploying frontend to Vercel -->
+    <!-- Uncomment and set your Render backend URL below: -->
+    <!-- <script>window.MEDCALL_API_URL = "https://your-render-app.onrender.com/api";</script> -->
+</head>
+<body>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Confirm Dialog Overlay -->
+    <div id="confirm-dialog-overlay" class="dialog-overlay hidden">
+        <div class="dialog-card">
+            <div class="dialog-icon">
+                <i data-lucide="phone-call"></i>
+            </div>
+            <h3 id="confirm-dialog-title">Confirm Call</h3>
+            <p id="confirm-dialog-message">Are you sure?</p>
+            <div class="dialog-actions">
+                <button id="confirm-dialog-cancel" class="btn btn-secondary" onclick="closeConfirmDialog()">Cancel</button>
+                <button id="confirm-dialog-confirm" class="btn btn-primary">Yes, Call Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal-card" id="modal-card">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal</h3>
+                <button class="modal-close" onclick="closeModal()">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modal-body">
+            </div>
+        </div>
+    </div>
+
+    <!-- App Layout -->
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">
+                    <i data-lucide="heart-pulse"></i>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">MedCall AI</span>
+                    <span class="brand-tagline">Smart Clinic System</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav" id="sidebar-nav">
+                <a href="#dashboard" class="nav-item active" data-page="dashboard">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#patients" class="nav-item" data-page="patients">
+                    <i data-lucide="users"></i>
+                    <span>Patients</span>
+                </a>
+                <a href="#appointments" class="nav-item" data-page="appointments">
+                    <i data-lucide="calendar-check"></i>
+                    <span>Appointments</span>
+                </a>
+                <a href="#calls" class="nav-item" data-page="calls">
+                    <i data-lucide="phone"></i>
+                    <span>Call Logs</span>
+                </a>
+                <a href="#analytics" class="nav-item" data-page="analytics">
+                    <i data-lucide="bar-chart-3"></i>
+                    <span>Analytics</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-footer-icon">
+                    <i data-lucide="stethoscope"></i>
+                </div>
+                <div class="sidebar-footer-text">
+                    <span class="footer-clinic" id="clinic-name">HealthFirst Clinic</span>
+                    <span class="footer-version">v1.0.0</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Mobile Header -->
+        <header class="mobile-header" id="mobile-header">
+            <button class="hamburger" id="hamburger" onclick="toggleSidebar()">
+                <i data-lucide="menu"></i>
+            </button>
+            <div class="mobile-brand">
+                <i data-lucide="heart-pulse"></i>
+                <span>MedCall AI</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content" id="main-content">
+            <div class="page-loader" id="page-loader">
+                <div class="loader-spinner"></div>
+                <p>Loading...</p>
+            </div>
+            <div id="page-content"></div>
+        </main>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script src="/js/api.js"></script>
+    <script src="/js/components/toast.js"></script>
+    <script src="/js/components/modal.js"></script>
+    <script src="/js/pages/dashboard.js"></script>
+    <script src="/js/pages/patients.js"></script>
+    <script src="/js/pages/appointments.js"></script>
+    <script src="/js/pages/callLogs.js"></script>
+    <script src="/js/pages/analytics.js"></script>
+    <script src="/js/router.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

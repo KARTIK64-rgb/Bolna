@@ -1,0 +1,7 @@
+medcall.db
+__pycache__/
+*.pyc
+.env
+*.db-journal
+node_modules/
+.DS_Store
