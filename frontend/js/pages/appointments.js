@@ -5,9 +5,9 @@
 const AppointmentsPage = {
     appointments: [],
     patients: [],
+    pollingTimer: null,
 
     async render() {
-        const today = new Date().toISOString().split('T')[0];
         const content = document.getElementById('page-content');
         content.innerHTML = `
             <div class="page-header">
@@ -48,8 +48,8 @@ const AppointmentsPage = {
                                     <th>Doctor</th>
                                     <th>Date & Time</th>
                                     <th>Status</th>
-                                    <th>Call Status</th>
-                                    <th>Action</th>
+                                    <th>AI Call</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="apt-tbody">
@@ -62,6 +62,7 @@ const AppointmentsPage = {
         `;
 
         lucide.createIcons();
+        this.stopPolling();
         await this.loadData();
     },
 
@@ -88,6 +89,7 @@ const AppointmentsPage = {
 
     renderTable() {
         const tbody = document.getElementById('apt-tbody');
+        if (!tbody) return;
 
         if (this.appointments.length === 0) {
             tbody.innerHTML = `
@@ -109,56 +111,108 @@ const AppointmentsPage = {
             const dateStr = dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
             const timeStr = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
             const callBtn = this.getCallButton(apt);
+            const safeId = apt.id;
 
             return `
                 <tr>
                     <td>
-                        <div class="table-name">${apt.patient_name || 'Unknown'}</div>
-                        <div class="table-secondary">${apt.patient_phone || ''}</div>
+                        <div class="table-name">${this.escapeHtml(apt.patient_name || 'Unknown')}</div>
+                        <div class="table-secondary">${this.escapeHtml(apt.patient_phone || '')}</div>
                     </td>
-                    <td>${apt.doctor_name}</td>
+                    <td>${this.escapeHtml(apt.doctor_name)}</td>
                     <td>
                         <div class="table-name">${dateStr}</div>
                         <div class="table-secondary">${timeStr}</div>
                     </td>
-                    <td><span class="badge badge-${apt.status}">${apt.status.replace('_', ' ')}</span></td>
-                    <td><span class="badge badge-${apt.call_status}">${apt.call_status}</span></td>
                     <td>
-                        <div class="flex gap-2 items-center">
-                            ${callBtn}
-                            <button class="btn btn-ghost btn-sm" onclick="AppointmentsPage.confirmDelete(${apt.id})" title="Delete" style="color:var(--danger-500)">
-                                <i data-lucide="trash-2"></i>
-                            </button>
-                        </div>
+                        <select class="form-select badge-select badge-${apt.status}" onchange="AppointmentsPage.changeStatus(${safeId}, this.value)" style="padding:4px 8px;font-size:0.75rem;min-width:110px">
+                            <option value="scheduled" ${apt.status==='scheduled'?'selected':''}>Scheduled</option>
+                            <option value="confirmed" ${apt.status==='confirmed'?'selected':''}>Confirmed</option>
+                            <option value="completed" ${apt.status==='completed'?'selected':''}>Completed</option>
+                            <option value="no_show" ${apt.status==='no_show'?'selected':''}>No Show</option>
+                            <option value="cancelled" ${apt.status==='cancelled'?'selected':''}>Cancelled</option>
+                            <option value="rescheduled" ${apt.status==='rescheduled'?'selected':''}>Rescheduled</option>
+                        </select>
+                    </td>
+                    <td>${callBtn}</td>
+                    <td>
+                        <button class="btn btn-ghost btn-sm" data-delete-id="${safeId}" title="Delete" style="color:var(--danger-500)">
+                            <i data-lucide="trash-2"></i>
+                        </button>
                     </td>
                 </tr>
             `;
         }).join('');
 
+        // Attach delete handlers via event delegation (prevents call button conflict)
+        tbody.querySelectorAll('[data-delete-id]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const id = parseInt(btn.getAttribute('data-delete-id'));
+                AppointmentsPage.confirmDelete(id);
+            });
+        });
+
         lucide.createIcons({ nodes: [tbody] });
+    },
+
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     },
 
     getCallButton(apt) {
         if (apt.call_status === 'calling') {
-            return `<span class="badge badge-calling"><i data-lucide="loader" style="width:12px;height:12px;animation:spin 1s linear infinite"></i> Calling...</span>`;
+            return `<span class="badge badge-calling" style="display:inline-flex;align-items:center;gap:4px">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+                Calling...
+            </span>`;
         }
 
+        const id = apt.id;
+
         if (apt.status === 'scheduled') {
-            return `<button class="btn btn-success btn-call btn-sm" onclick="AppointmentsPage.handleCall(${apt.id}, 'confirm', '${(apt.patient_name || '').replace(/'/g, "\\'")}', '${apt.patient_phone || ''}')">
-                <i data-lucide="phone-outgoing"></i> Confirm Call
+            return `<button class="btn btn-success btn-call btn-sm" data-call-id="${id}" data-call-type="confirm">
+                <i data-lucide="phone-outgoing"></i> Confirm
             </button>`;
         }
         if (apt.status === 'no_show') {
-            return `<button class="btn btn-warning btn-call btn-sm" onclick="AppointmentsPage.handleCall(${apt.id}, 'followup', '${(apt.patient_name || '').replace(/'/g, "\\'")}', '${apt.patient_phone || ''}')">
+            return `<button class="btn btn-warning btn-call btn-sm" data-call-id="${id}" data-call-type="followup">
                 <i data-lucide="phone-forwarded"></i> Follow-up
             </button>`;
         }
         if (apt.status === 'completed') {
-            return `<button class="btn btn-primary btn-call btn-sm" onclick="AppointmentsPage.handleCall(${apt.id}, 'feedback', '${(apt.patient_name || '').replace(/'/g, "\\'")}', '${apt.patient_phone || ''}')">
+            return `<button class="btn btn-primary btn-call btn-sm" data-call-id="${id}" data-call-type="feedback">
                 <i data-lucide="message-square"></i> Feedback
             </button>`;
         }
-        return '';
+        if (apt.status === 'confirmed') {
+            return `<span class="badge badge-confirmed" style="display:inline-flex;align-items:center;gap:4px">
+                <i data-lucide="check" style="width:12px;height:12px"></i> Ready
+            </span>`;
+        }
+        return `<span class="text-muted text-sm">—</span>`;
+    },
+
+    // Attach call button handlers after render
+    attachCallHandlers() {
+        const tbody = document.getElementById('apt-tbody');
+        if (!tbody) return;
+
+        tbody.querySelectorAll('[data-call-id]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const aptId = parseInt(btn.getAttribute('data-call-id'));
+                const agentType = btn.getAttribute('data-call-type');
+                const apt = AppointmentsPage.appointments.find(a => a.id === aptId);
+                if (apt) {
+                    AppointmentsPage.handleCall(aptId, agentType, apt.patient_name, apt.patient_phone);
+                }
+            });
+        });
     },
 
     handleCall(aptId, agentType, name, phone) {
@@ -171,11 +225,57 @@ const AppointmentsPage = {
                     await Api.triggerCall(aptId, agentType);
                     Toast.success(`${labels[agentType]} call initiated to ${name}!`);
                     await this.loadData();
+                    // Start polling for status changes
+                    this.startPolling();
                 } catch (e) {
                     Toast.error(`Call failed: ${e.message}`);
                 }
             }
         );
+    },
+
+    async changeStatus(aptId, newStatus) {
+        try {
+            await Api.updateAppointment(aptId, { status: newStatus });
+            Toast.success(`Status changed to ${newStatus.replace('_', ' ')}`);
+            await this.loadData();
+        } catch (e) {
+            Toast.error(`Failed to update: ${e.message}`);
+            await this.loadData(); // Revert dropdown
+        }
+    },
+
+    // Poll for status updates every 5 seconds after a call is triggered
+    startPolling() {
+        this.stopPolling();
+        let attempts = 0;
+        this.pollingTimer = setInterval(async () => {
+            attempts++;
+            try {
+                const oldStatuses = this.appointments.map(a => `${a.id}:${a.status}:${a.call_status}`);
+                await this.loadData();
+                const newStatuses = this.appointments.map(a => `${a.id}:${a.status}:${a.call_status}`);
+
+                // Check if any status changed
+                const changed = oldStatuses.some((s, i) => s !== newStatuses[i]);
+                if (changed) {
+                    Toast.info('📞 Call status updated!');
+                    this.stopPolling();
+                }
+            } catch {}
+
+            // Stop after 2 minutes (24 tries × 5 seconds)
+            if (attempts >= 24) {
+                this.stopPolling();
+            }
+        }, 5000);
+    },
+
+    stopPolling() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
     },
 
     async showCreateModal() {
@@ -185,7 +285,7 @@ const AppointmentsPage = {
         } catch { this.patients = []; }
 
         const patientOptions = this.patients.map(p =>
-            `<option value="${p.id}">${p.name} (${p.phone})</option>`
+            `<option value="${p.id}">${this.escapeHtml(p.name)} (${p.phone})</option>`
         ).join('');
 
         const timeSlots = [];
@@ -282,4 +382,11 @@ const AppointmentsPage = {
             }
         );
     },
+};
+
+// Override renderTable to also attach call handlers
+const _origRenderTable = AppointmentsPage.renderTable.bind(AppointmentsPage);
+AppointmentsPage.renderTable = function() {
+    _origRenderTable();
+    AppointmentsPage.attachCallHandlers();
 };

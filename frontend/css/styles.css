@@ -1407,3 +1407,41 @@ tbody tr:last-child td {
         width: 95%;
     }
 }
+
+/* ─── Status Select (inline dropdown) ──────────────────── */
+.badge-select {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-full);
+    font-weight: 600;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    padding-right: 24px !important;
+    transition: all var(--transition-fast);
+}
+.badge-select:hover {
+    border-color: var(--gray-300);
+}
+.badge-select.badge-confirmed, .badge-select.badge-completed {
+    background-color: var(--success-50);
+    color: var(--success-700);
+}
+.badge-select.badge-scheduled, .badge-select.badge-pending {
+    background-color: var(--warning-50);
+    color: var(--warning-600);
+}
+.badge-select.badge-no_show {
+    background-color: var(--danger-50);
+    color: var(--danger-600);
+}
+.badge-select.badge-cancelled {
+    background-color: var(--gray-100);
+    color: var(--gray-600);
+}
+.badge-select.badge-rescheduled {
+    background-color: var(--primary-50);
+    color: var(--primary-700);
+}
