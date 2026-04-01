@@ -10,20 +10,21 @@ router = APIRouter()
 async def bolna_webhook(request: Request):
     """
     Receive execution data from Bolna after calls complete.
-    Handles various event types gracefully.
+    Handles various event types and payload formats gracefully.
     """
     try:
         payload = await request.json()
     except Exception:
         payload = {}
 
-    print(f"📞 Bolna Webhook received: {json.dumps(payload, indent=2)[:500]}")
+    print(f"📞 Bolna Webhook received: {json.dumps(payload, indent=2)[:1000]}")
 
     # Try to extract execution ID from various payload formats
     execution_id = (
         payload.get("execution_id")
         or payload.get("id")
         or payload.get("data", {}).get("execution_id")
+        or payload.get("call_id")
     )
 
     if not execution_id:
@@ -39,22 +40,48 @@ async def bolna_webhook(request: Request):
         ).fetchone()
 
         if not call_log:
+            # Try matching without prefix/suffix variations
+            call_log = db.execute(
+                "SELECT * FROM call_logs WHERE bolna_execution_id LIKE ?",
+                (f"%{execution_id}%",),
+            ).fetchone()
+
+        if not call_log:
             print(f"⚠️ No call_log found for execution_id: {execution_id}")
             return {"status": "received", "message": "No matching call log"}
 
         call_log_dict = dict_from_row(call_log)
 
-        # Extract data from payload
+        # Extract data from payload — try multiple possible locations
         status = payload.get("status", "completed")
-        duration = payload.get("duration") or payload.get("call_duration")
-        transcript = payload.get("transcript", "")
-        summary = payload.get("summary", "")
-        extracted_data = payload.get("extracted_data") or payload.get("extraction", {})
-        recording_url = payload.get("recording_url", "")
+        duration = (
+            payload.get("duration")
+            or payload.get("call_duration")
+            or payload.get("data", {}).get("duration")
+        )
+        transcript = (
+            payload.get("transcript", "")
+            or payload.get("data", {}).get("transcript", "")
+        )
+        summary = (
+            payload.get("summary", "")
+            or payload.get("data", {}).get("summary", "")
+        )
+        extracted_data = (
+            payload.get("extracted_data")
+            or payload.get("extraction")
+            or payload.get("data", {}).get("extracted_data")
+            or payload.get("data", {}).get("extraction")
+            or {}
+        )
+        recording_url = (
+            payload.get("recording_url", "")
+            or payload.get("data", {}).get("recording_url", "")
+        )
 
         # Convert extracted_data to JSON string if it's a dict
         if isinstance(extracted_data, dict):
-            extracted_data_str = json.dumps(extracted_data)
+            extracted_data_str = json.dumps(extracted_data) if extracted_data else ""
         else:
             extracted_data_str = str(extracted_data) if extracted_data else ""
 
@@ -67,7 +94,7 @@ async def bolna_webhook(request: Request):
                 summary = ?,
                 extracted_data = ?,
                 recording_url = ?
-            WHERE bolna_execution_id = ?""",
+            WHERE id = ?""",
             (
                 status,
                 duration,
@@ -75,46 +102,66 @@ async def bolna_webhook(request: Request):
                 summary,
                 extracted_data_str,
                 recording_url,
-                execution_id,
+                call_log_dict["id"],
             ),
         )
 
-        # Update appointment status based on extracted data
-        if call_log_dict["appointment_id"] and extracted_data:
-            confirmation_status = None
-            if isinstance(extracted_data, dict):
-                confirmation_status = extracted_data.get("confirmation_status")
-            elif isinstance(extracted_data, str):
-                try:
-                    parsed = json.loads(extracted_data)
-                    confirmation_status = parsed.get("confirmation_status")
-                except (json.JSONDecodeError, AttributeError):
-                    pass
+        # Determine confirmation_status from extracted data
+        confirmation_status = None
+        if isinstance(extracted_data, dict) and extracted_data:
+            confirmation_status = (
+                extracted_data.get("confirmation_status")
+                or extracted_data.get("status")
+                or extracted_data.get("outcome")
+            )
+        elif isinstance(extracted_data, str) and extracted_data:
+            try:
+                parsed = json.loads(extracted_data)
+                if isinstance(parsed, dict):
+                    confirmation_status = (
+                        parsed.get("confirmation_status")
+                        or parsed.get("status")
+                        or parsed.get("outcome")
+                    )
+            except (json.JSONDecodeError, AttributeError):
+                pass
 
+        # Update appointment status
+        if call_log_dict["appointment_id"]:
             if confirmation_status:
                 status_map = {
                     "confirmed": "confirmed",
                     "cancelled": "cancelled",
                     "rescheduled": "rescheduled",
                 }
-                new_status = status_map.get(confirmation_status)
+                new_status = status_map.get(confirmation_status.lower())
                 if new_status:
                     db.execute(
                         "UPDATE appointments SET status = ?, call_status = 'completed' WHERE id = ?",
                         (new_status, call_log_dict["appointment_id"]),
                     )
+                else:
+                    db.execute(
+                        "UPDATE appointments SET call_status = 'completed' WHERE id = ?",
+                        (call_log_dict["appointment_id"],),
+                    )
             else:
-                db.execute(
-                    "UPDATE appointments SET call_status = 'completed' WHERE id = ?",
-                    (call_log_dict["appointment_id"],),
-                )
-        elif call_log_dict["appointment_id"]:
-            db.execute(
-                "UPDATE appointments SET call_status = 'completed' WHERE id = ?",
-                (call_log_dict["appointment_id"],),
-            )
+                # No extraction data — infer from agent type + call completion
+                # If a confirm call completed successfully, default to confirmed
+                agent_type = call_log_dict.get("agent_type", "")
+                if agent_type == "confirm" and status in ("completed", "complete", "ended"):
+                    db.execute(
+                        "UPDATE appointments SET status = 'confirmed', call_status = 'completed' WHERE id = ?",
+                        (call_log_dict["appointment_id"],),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE appointments SET call_status = 'completed' WHERE id = ?",
+                        (call_log_dict["appointment_id"],),
+                    )
 
         db.commit()
+        print(f"✅ Webhook processed: exec={execution_id}, status={status}, confirmation={confirmation_status}")
 
         return {"status": "processed", "execution_id": execution_id}
     except Exception as e:
