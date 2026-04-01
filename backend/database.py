@@ -104,6 +104,8 @@ def seed_data(cursor):
         ("Meera Joshi", "+919876543217", "meera.joshi@email.com", "hi"),
         ("Arjun Malhotra", "+919876543218", "arjun.malhotra@email.com", "en"),
         ("Kavitha Iyer", "+919876543219", "kavitha.iyer@email.com", "en"),
+        # Test user — YOUR real phone for live demo
+        ("Kartik", "+919696532773", "kartik@email.com", "en"),
     ]
 
     cursor.executemany(
@@ -134,6 +136,13 @@ def seed_data(cursor):
         (3, doctors[2], (today + timedelta(days=1)).replace(hour=11, minute=0).isoformat(), "scheduled", "pending"),
         (4, doctors[3], (today + timedelta(days=2)).replace(hour=10, minute=30).isoformat(), "scheduled", "pending"),
         (5, doctors[0], (today + timedelta(days=3)).replace(hour=14, minute=0).isoformat(), "scheduled", "pending"),
+        # ═══ KARTIK — Test appointments for all 3 agents ═══
+        # Scheduled → test ConfirmBot (📞 Confirm Call button)
+        (11, doctors[0], today.replace(hour=16, minute=0).isoformat(), "scheduled", "pending"),
+        # No Show → test FollowUpBot (📞 Follow-up button)
+        (11, doctors[1], (today - timedelta(days=1)).replace(hour=10, minute=0).isoformat(), "no_show", "completed"),
+        # Completed → test FeedbackBot (📞 Feedback button)
+        (11, doctors[2], (today - timedelta(days=2)).replace(hour=11, minute=0).isoformat(), "completed", "completed"),
     ]
 
     cursor.executemany(
