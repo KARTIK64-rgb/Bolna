@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from database import get_db, dict_from_row
 from models import TriggerCallRequest, RescheduleRequest
-from services.bolna import make_call
+from services.bolna import make_call, get_execution
 from config import settings
 
 router = APIRouter()
@@ -91,6 +91,96 @@ async def trigger_call(request: TriggerCallRequest):
             "agent_type": request.agent_type,
             "patient_name": apt["patient_name"],
             "phone": apt["patient_phone"],
+        }
+    finally:
+        db.close()
+
+
+@router.get("/poll-call-status/{appointment_id}")
+async def poll_call_status(appointment_id: int):
+    """
+    Poll Bolna API for call completion and update appointment status.
+    Frontend calls this every 5 seconds after triggering a call.
+    """
+    db = get_db()
+    try:
+        apt = db.execute(
+            "SELECT * FROM appointments WHERE id = ?", (appointment_id,)
+        ).fetchone()
+
+        if not apt:
+            return {"done": True, "status": "unknown", "call_status": "unknown"}
+
+        apt_dict = dict_from_row(apt)
+
+        # Already done? Return immediately
+        if apt_dict["call_status"] != "calling":
+            return {
+                "done": True,
+                "status": apt_dict["status"],
+                "call_status": apt_dict["call_status"],
+            }
+
+        # Check Bolna's API for the execution result
+        exec_id = apt_dict.get("bolna_execution_id")
+        if not exec_id:
+            return {"done": False, "status": apt_dict["status"], "call_status": "calling"}
+
+        try:
+            result = await get_execution(exec_id)
+            print(f"📡 Bolna poll for {exec_id}: status={result.get('status')}")
+            bolna_status = str(result.get("status", "")).lower()
+        except Exception as e:
+            print(f"⚠️ Bolna poll error: {e}")
+            return {"done": False, "status": apt_dict["status"], "call_status": "calling"}
+
+        # Still in progress
+        if bolna_status not in ("completed", "complete", "ended", "failed", "error"):
+            return {"done": False, "status": apt_dict["status"], "call_status": "calling"}
+
+        # ─── Call is done → update everything ─────────────────
+        call_log = db.execute(
+            "SELECT * FROM call_logs WHERE appointment_id = ? ORDER BY id DESC LIMIT 1",
+            (appointment_id,),
+        ).fetchone()
+
+        agent_type = dict_from_row(call_log).get("agent_type", "") if call_log else ""
+
+        # Save transcript/summary/duration from Bolna
+        transcript = result.get("transcript", "")
+        summary = result.get("summary", "")
+        duration = result.get("duration") or result.get("call_duration")
+
+        if call_log:
+            db.execute(
+                """UPDATE call_logs SET status='completed',
+                   transcript=COALESCE(NULLIF(?,''), transcript),
+                   summary=COALESCE(NULLIF(?,''), summary),
+                   duration=COALESCE(?, duration)
+                WHERE id=?""",
+                (transcript, summary, duration, dict_from_row(call_log)["id"]),
+            )
+
+        # Set new appointment status based on which agent was used
+        new_status = apt_dict["status"]  # default: keep current
+        if agent_type == "confirm":
+            new_status = "confirmed"
+        elif agent_type == "followup":
+            new_status = "rescheduled"
+        # feedback doesn't change appointment status
+
+        db.execute(
+            "UPDATE appointments SET status=?, call_status='completed' WHERE id=?",
+            (new_status, appointment_id),
+        )
+        db.commit()
+
+        print(f"✅ Call done: apt={appointment_id}, agent={agent_type}, new_status={new_status}")
+
+        return {
+            "done": True,
+            "status": new_status,
+            "call_status": "completed",
         }
     finally:
         db.close()

@@ -102,6 +102,10 @@ const Api = {
         });
     },
 
+    pollCallStatus(appointmentId) {
+        return this.request(`/poll-call-status/${appointmentId}`);
+    },
+
     getCallLogs() {
         return this.request('/call-logs');
     },

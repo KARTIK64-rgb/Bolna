@@ -225,13 +225,49 @@ const AppointmentsPage = {
                     await Api.triggerCall(aptId, agentType);
                     Toast.success(`${labels[agentType]} call initiated to ${name}!`);
                     await this.loadData();
-                    // Start polling for status changes
-                    this.startPolling();
+                    // Start polling Bolna API for this specific appointment
+                    this.startPolling(aptId);
                 } catch (e) {
                     Toast.error(`Call failed: ${e.message}`);
                 }
             }
         );
+    },
+
+    // Poll Bolna API via backend for call completion
+    startPolling(appointmentId) {
+        this.stopPolling();
+        let attempts = 0;
+        Toast.info('📞 Waiting for call to complete...');
+
+        this.pollingTimer = setInterval(async () => {
+            attempts++;
+            try {
+                const result = await Api.pollCallStatus(appointmentId);
+
+                if (result.done) {
+                    this.stopPolling();
+                    Toast.success(`✅ Call completed! Status: ${result.status}`);
+                    await this.loadData();
+                }
+            } catch (err) {
+                console.log('Poll error:', err);
+            }
+
+            // Stop after 3 minutes (36 tries × 5 seconds)
+            if (attempts >= 36) {
+                this.stopPolling();
+                Toast.info('Polling stopped. Refresh to check status.');
+                await this.loadData();
+            }
+        }, 5000);
+    },
+
+    stopPolling() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
     },
 
     async changeStatus(aptId, newStatus) {
@@ -241,40 +277,7 @@ const AppointmentsPage = {
             await this.loadData();
         } catch (e) {
             Toast.error(`Failed to update: ${e.message}`);
-            await this.loadData(); // Revert dropdown
-        }
-    },
-
-    // Poll for status updates every 5 seconds after a call is triggered
-    startPolling() {
-        this.stopPolling();
-        let attempts = 0;
-        this.pollingTimer = setInterval(async () => {
-            attempts++;
-            try {
-                const oldStatuses = this.appointments.map(a => `${a.id}:${a.status}:${a.call_status}`);
-                await this.loadData();
-                const newStatuses = this.appointments.map(a => `${a.id}:${a.status}:${a.call_status}`);
-
-                // Check if any status changed
-                const changed = oldStatuses.some((s, i) => s !== newStatuses[i]);
-                if (changed) {
-                    Toast.info('📞 Call status updated!');
-                    this.stopPolling();
-                }
-            } catch {}
-
-            // Stop after 2 minutes (24 tries × 5 seconds)
-            if (attempts >= 24) {
-                this.stopPolling();
-            }
-        }, 5000);
-    },
-
-    stopPolling() {
-        if (this.pollingTimer) {
-            clearInterval(this.pollingTimer);
-            this.pollingTimer = null;
+            await this.loadData();
         }
     },
 
